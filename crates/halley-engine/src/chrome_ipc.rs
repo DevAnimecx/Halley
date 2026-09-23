@@ -107,7 +107,9 @@ fn parse_prefixed(body: &str) -> Option<ChromeAction> {
             }
         }
         "jerrykey" => {
-            if rest.is_empty() {
+            // Reject control/non-ASCII early: keys are header material and
+            // must be printable ASCII (same rule as CredentialStore::put).
+            if rest.is_empty() || !rest.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
                 None
             } else {
                 Some(ChromeAction::JerrySetKey(rest.to_string()))
@@ -388,6 +390,10 @@ mod tests {
             parse_chrome_message("jerrykey super-secret"),
             Some(ChromeAction::JerrySetKey("super-secret".into()))
         );
+        // Control / non-ASCII key material is rejected at parse time.
+        assert_eq!(parse_chrome_message("jerrykey bad\u{0007}key"), None);
+        assert_eq!(parse_chrome_message("jerrykey sk-café"), None);
+        assert_eq!(parse_chrome_message("jerrykey "), None);
     }
 
     #[test]

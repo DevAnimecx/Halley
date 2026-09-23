@@ -158,9 +158,7 @@ impl Application {
                         halley_common::log_warn!("engine message failed: {err}");
                     }
                     let events = browser.drain_events();
-                    if let Err(err) = apply_jerry_events(&mut jerry, &browser, &events) {
-                        halley_common::log_warn!("jerry action failed: {err}");
-                    }
+                    apply_jerry_events(&mut jerry, &browser, &events);
                     let jerry_state = jerry.snapshot();
                     let open_changed = jerry_state.open != last_jerry_open;
                     last_jerry_open = jerry_state.open;

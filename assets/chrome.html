@@ -183,7 +183,31 @@
     max-width: 140px;
   }
   #jerryheader input[type="password"] { max-width: 160px; }
-  #jerryheader .status { margin-left: auto; }
+  #jerryheader .status {
+    margin-left: auto;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: var(--field);
+    color: var(--muted);
+  }
+  #jerryheader .status[data-busy="1"] { color: var(--accent); }
+  #jerryheader .status[data-err="1"] { color: #ff8a80; }
+  .hdrbtn {
+    height: 26px;
+    border: 1px solid var(--field-border);
+    border-radius: 6px;
+    background: var(--field);
+    color: var(--fg);
+    font: inherit;
+    cursor: pointer;
+    padding: 0 8px;
+  }
+  .hdrbtn:hover:not(:disabled) { background: var(--btn-hover); }
+  .hdrbtn:disabled {
+    opacity: var(--btn-disabled-opacity);
+    cursor: default;
+  }
   #jerrymessages {
     flex: 1;
     min-height: 0;
@@ -224,6 +248,15 @@
     animation: blink 1s step-end infinite;
   }
   @keyframes blink { 50% { opacity: 0; } }
+  #jerryempty {
+    margin: auto;
+    max-width: 36ch;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+  }
   #jerryerror {
     display: none;
     padding: 4px 8px;
@@ -309,9 +342,9 @@
       <label>API key
         <input id="jerrykey" type="password" placeholder="stored locally" spellcheck="false" autocomplete="off">
       </label>
-      <button id="jerrytestbtn" type="button" class="secondary" style="height:26px;border:1px solid var(--field-border);border-radius:6px;background:var(--field);color:var(--fg);font:inherit;cursor:pointer;padding:0 8px;">Test</button>
-      <button id="jerrynewbtn" type="button" style="height:26px;border:1px solid var(--field-border);border-radius:6px;background:var(--field);color:var(--fg);font:inherit;cursor:pointer;padding:0 8px;">New</button>
-      <button id="jerrystopbtn" type="button" style="height:26px;border:1px solid var(--field-border);border-radius:6px;background:var(--field);color:var(--fg);font:inherit;cursor:pointer;padding:0 8px;" disabled>Stop</button>
+      <button id="jerrytestbtn" type="button" class="hdrbtn">Test</button>
+      <button id="jerrynewbtn" type="button" class="hdrbtn">New</button>
+      <button id="jerrystopbtn" type="button" class="hdrbtn" disabled>Stop</button>
       <span class="status" id="jerrystatus">disabled</span>
     </div>
     <div id="jerryerror" role="alert"></div>
@@ -375,11 +408,23 @@
   var jerryNew = document.getElementById("jerrynewbtn");
   var jerryTest = document.getElementById("jerrytestbtn");
 
+  // Draft held after Send until the host accepts the action; restored if
+  // the next state push reports an error (IPC is fire-and-forget).
+  var pendingSend = null;
+  var pendingMsgCount = 0;
+
+  function isBusyStatus(s) {
+    return s === "streaming" || s === "connecting";
+  }
+
   function renderJerry() {
     var j = state.jerry || {};
     jerryPanel.classList.toggle("open", !!j.open);
     jerryBtn.classList.toggle("active", !!j.open);
-    jerryStatus.textContent = j.status || "disabled";
+    var status = j.status || "disabled";
+    jerryStatus.textContent = status;
+    jerryStatus.dataset.busy = isBusyStatus(status) ? "1" : "0";
+    jerryStatus.dataset.err = status === "error" ? "1" : "0";
     if (j.provider && jerryProvider.value !== j.provider) {
       jerryProvider.value = j.provider;
     }
@@ -394,17 +439,41 @@
       jerryError.classList.remove("show");
       jerryError.textContent = "";
     }
-    var busy = j.status === "streaming" || j.status === "connecting";
+    var busy = isBusyStatus(status);
     jerryStop.disabled = !busy;
     jerrySend.disabled = !j.enabled || busy;
     jerryTest.disabled = !j.enabled || busy;
+
+    // Restore an unsent draft if the host rejected the last send.
+    if (pendingSend) {
+      var msgs = j.messages || [];
+      if (busy || msgs.length > pendingMsgCount) {
+        pendingSend = null;
+      } else if (j.error) {
+        if (!jerryInput.value) {
+          jerryInput.value = pendingSend;
+        }
+        pendingSend = null;
+      }
+    }
+
     jerryMessages.textContent = "";
-    (j.messages || []).forEach(function (m) {
-      var el = document.createElement("div");
-      el.className = "jmsg " + (m.role || "system") + (m.streaming ? " streaming" : "");
-      el.textContent = m.content || (m.streaming ? "…" : "");
-      jerryMessages.appendChild(el);
-    });
+    var messages = j.messages || [];
+    if (messages.length === 0) {
+      var empty = document.createElement("div");
+      empty.id = "jerryempty";
+      empty.textContent = j.enabled
+        ? "Ask Jerry about this page. Conversations stay on this device."
+        : "Choose a provider and API key to enable Jerry (BYOK).";
+      jerryMessages.appendChild(empty);
+    } else {
+      messages.forEach(function (m) {
+        var el = document.createElement("div");
+        el.className = "jmsg " + (m.role || "system") + (m.streaming ? " streaming" : "");
+        el.textContent = m.content || (m.streaming ? "…" : "");
+        jerryMessages.appendChild(el);
+      });
+    }
     jerryMessages.scrollTop = jerryMessages.scrollHeight;
   }
 
@@ -412,6 +481,10 @@
   jerrySend.addEventListener("click", function () {
     var text = jerryInput.value.trim();
     if (!text) return;
+    var j = state.jerry || {};
+    if (!j.enabled || isBusyStatus(j.status)) return;
+    pendingSend = text;
+    pendingMsgCount = (j.messages || []).length;
     post("jerrysend " + text);
     jerryInput.value = "";
   });

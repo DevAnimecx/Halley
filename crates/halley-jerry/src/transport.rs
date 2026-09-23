@@ -331,7 +331,11 @@ fn map_ureq_err(err: ureq::Error) -> JerryError {
                 detail: crate::privacy::redact_secrets_in_text(&detail),
             }
         }
-        ureq::Error::Transport(t) => JerryError::Transport(t.to_string()),
+        // ureq Transport errors can embed header values (e.g. a bad
+        // Authorization line). Redact before the string leaves this crate.
+        ureq::Error::Transport(t) => {
+            JerryError::Transport(crate::privacy::redact_secrets_in_text(&t.to_string()))
+        }
     }
 }
 
@@ -340,9 +344,9 @@ impl ProviderTransport for UreqTransport {
         validate_endpoint(req.url.as_str())?;
         let response = self.send(req).map_err(map_ureq_err)?;
         let status = response.status();
-        let body = response
-            .into_string()
-            .map_err(|e| JerryError::Transport(e.to_string()))?;
+        let body = response.into_string().map_err(|e| {
+            JerryError::Transport(crate::privacy::redact_secrets_in_text(&e.to_string()))
+        })?;
         Ok((status, body))
     }
 
@@ -360,9 +364,9 @@ impl ProviderTransport for UreqTransport {
         validate_endpoint(req.url.as_str())?;
         let response = self.send(req).map_err(map_ureq_err)?;
         let status = response.status();
-        let body = response
-            .into_string()
-            .map_err(|e| JerryError::Transport(e.to_string()))?;
+        let body = response.into_string().map_err(|e| {
+            JerryError::Transport(crate::privacy::redact_secrets_in_text(&e.to_string()))
+        })?;
 
         let mut assembled = String::new();
         if req

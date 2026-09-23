@@ -167,6 +167,14 @@ cargo run -p halley-core --bin halley                  # open the browser
 cargo run -p halley-core --bin halley https://example.com   # optional URL/search
 ```
 
+Or on Windows use the one-shot dev launcher:
+
+```powershell
+.\scripts\dev.ps1                 # debug build + open browser
+.\scripts\dev.ps1 https://example.com
+.\scripts\dev.ps1 -Release
+```
+
 Or run the full local gate (same as CI):
 
 ```sh

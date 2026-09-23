@@ -133,8 +133,13 @@ fn mock_transport_chat_flow_completes_without_network() {
 
     host.handle_action(ChromeAction::JerrySend("hello jerry".into()), &browser)
         .unwrap();
-    // Internal status is "connecting"; snapshot reports "streaming" while busy.
-    assert_eq!(host.snapshot().status, "streaming");
+    // Status starts as "connecting"; becomes "streaming" once partial text
+    // arrives in poll(); snapshot no longer force-overrides to "streaming".
+    let early = host.snapshot().status;
+    assert!(
+        early == "connecting" || early == "streaming",
+        "expected connecting/streaming, got {early}"
+    );
 
     let done = wait_until(Duration::from_secs(5), || {
         host.poll();
@@ -161,7 +166,7 @@ fn apply_jerry_events_pushes_actions_into_host() {
     let mut host = memory_host(&config, transport);
 
     let events = vec![BrowserEvent::JerryAction(ChromeAction::JerryToggle)];
-    apply_jerry_events(&mut host, &browser, &events).unwrap();
+    apply_jerry_events(&mut host, &browser, &events);
     assert!(host.snapshot().open, "toggle should open the panel");
 }
 
@@ -223,4 +228,29 @@ fn send_without_key_surfaces_error_not_fake_success() {
     );
     assert!(!host.is_busy());
     assert_ne!(host.snapshot().status, "streaming");
+    assert_ne!(host.snapshot().status, "connecting");
+}
+
+#[test]
+fn apply_jerry_events_does_not_abort_batch_on_failure() {
+    let config = Config::default();
+    let browser = browser_with_mock_engine(config.clone());
+    let transport: Arc<dyn ProviderTransport> = Arc::new(MockTransport::new());
+    let mut host = memory_host(&config, transport);
+    host.handle_action(ChromeAction::JerryEnable, &browser)
+        .unwrap();
+    host.handle_action(ChromeAction::JerrySetProvider("openai".into()), &browser)
+        .unwrap();
+
+    let events = vec![
+        // Fails: no API key yet.
+        BrowserEvent::JerryAction(ChromeAction::JerrySend("hi".into())),
+        // Must still run after the failure.
+        BrowserEvent::JerryAction(ChromeAction::JerryToggle),
+    ];
+    apply_jerry_events(&mut host, &browser, &events);
+
+    let snap = host.snapshot();
+    assert!(snap.error.is_some(), "failed action should surface error");
+    assert!(snap.open, "later event in the same batch must still apply");
 }

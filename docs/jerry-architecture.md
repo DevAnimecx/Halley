@@ -71,12 +71,18 @@ halley-core
 `JerryChromeState` (serialized into chrome state, never includes secrets):
 
 - `open`, `enabled`, `provider`, `model`, `has_api_key`
-- `status`: `disabled` | `idle` | `connecting` | `streaming` | …
+- `status`: `disabled` | `idle` | `connecting` | `streaming` | `error` | …
+  - `connecting`: job spawned, no partial assistant text yet (or a Test probe).
+  - `streaming`: at least one partial delta has arrived for the active send.
 - `messages`: role + content (+ streaming flag)
-- `context_note`, `error` (user-visible, redacted)
+- `error`: last action/transport failure (redacted); shown in the panel.
+  Failed chrome actions are surfaced here via `apply_jerry_events`
+  (per-event, not aborting the batch).
+- `context_note`
 
 API key **value** is never part of this struct. Entering a key posts
-`jerrykey <secret>` once; chrome clears the input immediately.
+`jerrykey <secret>` once; chrome clears the input immediately only after
+the host accepts it (failed sends restore the draft).
 
 ## 5. Storage
 

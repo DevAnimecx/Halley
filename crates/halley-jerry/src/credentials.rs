@@ -129,6 +129,10 @@ impl CredentialStore {
     }
 
     /// Store or replace a credential; marks provider selected.
+    ///
+    /// Rejects empty keys and keys containing control or non-ASCII bytes
+    /// (those break HTTP header encoding and can leak through transport
+    /// error strings).
     pub fn put(
         &mut self,
         provider: ProviderKind,
@@ -136,6 +140,15 @@ impl CredentialStore {
     ) -> Result<(), JerryError> {
         if credential.is_empty_key() {
             return Err(JerryError::InvalidRequest("empty API key".into()));
+        }
+        if !credential
+            .api_key
+            .chars()
+            .all(|c| c.is_ascii_graphic() || c == ' ')
+        {
+            return Err(JerryError::InvalidRequest(
+                "API key must contain only printable ASCII characters".into(),
+            ));
         }
         self.providers
             .insert(provider.as_str().to_string(), credential);
@@ -234,6 +247,26 @@ mod tests {
             .put(ProviderKind::OpenAi, ProviderCredential::new("   "))
             .unwrap_err();
         assert!(matches!(err, JerryError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn control_and_non_ascii_keys_rejected() {
+        let mut store = CredentialStore::memory_only();
+        let err = store
+            .put(
+                ProviderKind::OpenAi,
+                ProviderCredential::new("sk-bad\u{0000}key"),
+            )
+            .unwrap_err();
+        assert!(matches!(err, JerryError::InvalidRequest(_)));
+        let err = store
+            .put(
+                ProviderKind::OpenAi,
+                ProviderCredential::new("sk-café-key-value-123"),
+            )
+            .unwrap_err();
+        assert!(matches!(err, JerryError::InvalidRequest(_)));
+        assert!(!store.has_key(ProviderKind::OpenAi));
     }
 
     #[test]

@@ -56,6 +56,9 @@ pub struct JerryHost {
     waker: Option<Arc<dyn Fn() + Send + Sync>>,
     /// Settings snapshot kept while the runtime is checked out by a worker.
     held_settings: JerrySettings,
+    /// Cached "has API key" for the selected provider while the runtime is
+    /// checked out (snapshot must not flip to false mid-job).
+    held_has_api_key: bool,
     /// Shared slot the worker writes the runtime into when finished.
     returned: Arc<Mutex<Option<JerryRuntime>>>,
 }
@@ -143,6 +146,9 @@ impl JerryHost {
         } else {
             "idle"
         };
+        let held_has_api_key = ProviderKind::parse(&held_settings.provider)
+            .map(|kind| runtime.credentials().has_key(kind))
+            .unwrap_or(false);
         Self {
             runtime: Some(runtime),
             private,
@@ -158,7 +164,19 @@ impl JerryHost {
             job: None,
             waker,
             held_settings,
+            held_has_api_key,
             returned: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Surface an action/transport error into the panel (redacted).
+    ///
+    /// Called when a chrome action fails so the UI shows the failure instead
+    /// of dropping it on the floor.
+    fn report_error(&mut self, message: &str) {
+        self.error = Some(redact_display(message));
+        if !self.is_busy() && self.status != "disabled" {
+            self.status = "error".to_string();
         }
     }
 
@@ -203,9 +221,14 @@ impl JerryHost {
                     self.held_settings.provider = "openai".to_string();
                 }
                 let settings = self.held_settings.clone();
+                let mut has_key = self.held_has_api_key;
                 if let Some(rt) = self.runtime_mut() {
                     rt.set_settings(settings);
+                    if let Ok(kind) = rt.provider_kind() {
+                        has_key = rt.credentials().has_key(kind);
+                    }
                 }
+                self.held_has_api_key = has_key;
                 if self.status == "disabled" {
                     self.status = "idle".to_string();
                 }
@@ -242,16 +265,20 @@ impl JerryHost {
             }
             ChromeAction::JerrySetProvider(raw) => {
                 let kind = ProviderKind::parse(&raw)?;
-                let mut settings = {
+                let mut settings;
+                let has_key;
+                {
                     let rt = self.require_runtime_mut()?;
                     let mut s = rt.settings().clone();
                     s.provider = kind.as_str().to_string();
                     rt.set_settings(s.clone());
                     rt.credentials_mut().set_selected(kind);
-                    s
-                };
+                    has_key = rt.credentials().has_key(kind);
+                    settings = s;
+                }
                 settings.provider = kind.as_str().to_string();
                 self.held_settings = settings;
+                self.held_has_api_key = has_key;
                 self.error = None;
                 if self.status == "disabled" {
                     self.status = "idle".to_string();
@@ -271,17 +298,25 @@ impl JerryHost {
                 Ok(())
             }
             ChromeAction::JerrySetKey(key) => {
-                let rt = self.require_runtime_mut()?;
-                let kind = rt.provider_kind()?;
-                rt.credentials_mut()
-                    .put(kind, ProviderCredential::new(key))?;
+                let has_key;
+                {
+                    let rt = self.require_runtime_mut()?;
+                    let kind = rt.provider_kind()?;
+                    rt.credentials_mut()
+                        .put(kind, ProviderCredential::new(key))?;
+                    has_key = rt.credentials().has_key(kind);
+                }
+                self.held_has_api_key = has_key;
                 self.error = None;
                 Ok(())
             }
             ChromeAction::JerryClearKey => {
-                let rt = self.require_runtime_mut()?;
-                let kind = rt.provider_kind()?;
-                rt.credentials_mut().remove(kind)?;
+                {
+                    let rt = self.require_runtime_mut()?;
+                    let kind = rt.provider_kind()?;
+                    rt.credentials_mut().remove(kind)?;
+                }
+                self.held_has_api_key = false;
                 Ok(())
             }
             ChromeAction::JerryTestProvider => self.spawn_test(),
@@ -304,6 +339,9 @@ impl JerryHost {
             if let Some(last) = self.messages.last_mut() {
                 if last.streaming && !guard.partial.is_empty() {
                     last.content = redact_display(&guard.partial);
+                    if self.status == "connecting" {
+                        self.status = "streaming".to_string();
+                    }
                 }
             }
             if !guard.context_ids.is_empty() {
@@ -336,7 +374,7 @@ impl JerryHost {
             }
             Err(message) => {
                 self.status = "error".to_string();
-                self.error = Some(message);
+                self.error = Some(redact_display(&message));
                 if let Some(last) = self.messages.last_mut() {
                     if last.streaming && last.content.is_empty() {
                         // keep bubble for honesty about failure
@@ -358,24 +396,19 @@ impl JerryHost {
             .runtime()
             .and_then(|rt| rt.effective_model().ok())
             .unwrap_or_else(|| self.held_settings.model.clone());
-        let has_api_key = ProviderKind::parse(&provider)
-            .map(|kind| {
-                self.runtime()
-                    .map(|rt| rt.credentials().has_key(kind))
-                    .unwrap_or(false)
-            })
-            .unwrap_or(false);
+        let has_api_key = match (ProviderKind::parse(&provider), self.runtime()) {
+            (Ok(kind), Some(rt)) => rt.credentials().has_key(kind),
+            // Runtime checked out by a worker: use the cached bit so the
+            // panel does not flip hasApiKey to false mid-job.
+            _ => self.held_has_api_key,
+        };
         JerryChromeState {
             open: self.panel_open,
             enabled: !provider.is_empty() && self.status != "disabled",
             provider,
             model,
             has_api_key,
-            status: if self.is_busy() {
-                "streaming".to_string()
-            } else {
-                self.status.clone()
-            },
+            status: self.status.clone(),
             messages: self.messages.clone(),
             context_note: self.context_note.clone(),
             error: self.error.clone(),
@@ -430,11 +463,16 @@ impl JerryHost {
             return Ok(());
         }
         // Non-streaming probe on a worker so the UI stays responsive.
+        // `check_ready` runs before the runtime is checked out so a failed
+        // Test (missing key, etc.) does not brick the host.
         let rt = self
             .runtime
             .take()
             .ok_or_else(|| CoreError::Jerry(JerryError::InvalidRequest("runtime out".into())))?;
-        rt.check_ready()?;
+        if let Err(err) = rt.check_ready() {
+            self.runtime = Some(rt);
+            return Err(err.into());
+        }
 
         self.status = "connecting".to_string();
         self.error = None;
@@ -581,6 +619,9 @@ impl JerryHost {
         if let Ok(mut slot) = self.returned.lock() {
             if let Some(rt) = slot.take() {
                 self.held_settings = rt.settings().clone();
+                if let Ok(kind) = rt.provider_kind() {
+                    self.held_has_api_key = rt.credentials().has_key(kind);
+                }
                 self.runtime = Some(rt);
                 return;
             }
@@ -597,6 +638,9 @@ impl JerryHost {
             if let Ok(store) = ConversationStore::load_file(&path) {
                 *runtime.conversations_mut() = store;
             }
+        }
+        if let Ok(kind) = runtime.provider_kind() {
+            self.held_has_api_key = runtime.credentials().has_key(kind);
         }
         self.runtime = Some(runtime);
     }
@@ -649,17 +693,22 @@ fn redact_display(text: &str) -> String {
 }
 
 /// Drain Jerry actions from browser events and apply them.
+///
+/// Each event is handled independently: a failed action is surfaced into
+/// the panel error state (`host.report_error`) so the chrome UI can show
+/// it, instead of aborting the remaining events or logging only.
 pub fn apply_jerry_events<E: BrowserEngine>(
     host: &mut JerryHost,
     browser: &Browser<E>,
     events: &[BrowserEvent],
-) -> Result<(), CoreError> {
+) {
     for event in events {
         if let BrowserEvent::JerryAction(action) = event {
-            host.handle_action(action.clone(), browser)?;
+            if let Err(err) = host.handle_action(action.clone(), browser) {
+                host.report_error(&err.to_string());
+            }
         }
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -779,6 +828,80 @@ mod tests {
     }
 
     #[test]
+    fn test_without_key_keeps_runtime_for_retry() {
+        let config = Config::default();
+        let browser = browser_with_config(config.clone());
+        let transport: Arc<dyn ProviderTransport> = Arc::new(MockTransport::new());
+        let mut host = JerryHost::memory_only(&config, transport, None);
+        host.handle_action(ChromeAction::JerrySetProvider("openai".into()), &browser)
+            .unwrap();
+
+        // Failed Test must not check out (and drop) the runtime.
+        let err = host
+            .handle_action(ChromeAction::JerryTestProvider, &browser)
+            .unwrap_err();
+        assert!(matches!(err, CoreError::Jerry(_)));
+        assert!(!host.is_busy());
+        assert!(
+            host.runtime.is_some(),
+            "runtime must be restored after failed Test"
+        );
+
+        // A subsequent Test with a key can still spawn.
+        host.handle_action(
+            ChromeAction::JerrySetKey("sk-test-key-abcdef123456".into()),
+            &browser,
+        )
+        .unwrap();
+        host.handle_action(ChromeAction::JerryTestProvider, &browser)
+            .unwrap();
+        assert!(host.is_busy());
+        for _ in 0..400 {
+            host.poll();
+            if !host.is_busy() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        host.poll();
+        assert!(!host.is_busy());
+        let snap = host.snapshot();
+        assert_eq!(
+            snap.status, "idle",
+            "expected idle after test, got {}",
+            snap.status
+        );
+        assert!(snap.error.is_none(), "unexpected error: {:?}", snap.error);
+    }
+
+    #[test]
+    fn apply_jerry_events_surfaces_failed_action_error() {
+        let config = Config::default();
+        let browser = browser_with_config(config.clone());
+        let transport: Arc<dyn ProviderTransport> = Arc::new(MockTransport::new());
+        let mut host = JerryHost::memory_only(&config, transport, None);
+        host.handle_action(ChromeAction::JerryEnable, &browser)
+            .unwrap();
+        host.handle_action(ChromeAction::JerrySetProvider("openai".into()), &browser)
+            .unwrap();
+
+        let events = vec![BrowserEvent::JerryAction(ChromeAction::JerrySend(
+            "hi".into(),
+        ))];
+        apply_jerry_events(&mut host, &browser, &events);
+        let snap = host.snapshot();
+        assert!(snap.error.is_some(), "failed send must surface host.error");
+        assert!(!host.is_busy());
+        // Later events in the same batch still apply.
+        apply_jerry_events(
+            &mut host,
+            &browser,
+            &[BrowserEvent::JerryAction(ChromeAction::JerryToggle)],
+        );
+        assert!(host.snapshot().open);
+    }
+
+    #[test]
     fn chrome_events_apply_jerry_actions() {
         let config = Config::default();
         let mut browser = browser_with_config(config.clone());
@@ -788,7 +911,7 @@ mod tests {
             .inject_chrome_action(ChromeAction::JerryToggle);
         browser.process_messages().unwrap();
         let events = browser.drain_events();
-        apply_jerry_events(&mut host, &browser, &events).unwrap();
+        apply_jerry_events(&mut host, &browser, &events);
         assert!(host.snapshot().open);
     }
 
