@@ -1,0 +1,18 @@
+# Rust build output
+/target/
+**/*.rs.bk
+*.pdb
+
+# Editor/OS droppings
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Secrets must never be committed (see AGENTS.md §5)
+.env
+*.key
+*.pem
+
+# NOTE: Cargo.lock is intentionally committed — Halley is an application,
+# and reproducible dependency resolution is part of the security posture.

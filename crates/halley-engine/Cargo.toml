@@ -1,0 +1,23 @@
+[package]
+name = "halley-engine"
+description = "Browser engine abstraction boundary for Halley"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["native"]
+# Real OS WebView backend (wry). Off for pure logic tests via
+# default-features = false.
+native = ["dep:wry", "dep:raw-window-handle"]
+# In-process mock engine for integration tests (no window, no network).
+test-engine = []
+
+[dependencies]
+halley-common = { path = "../halley-common" }
+raw-window-handle = { version = "0.6", optional = true, features = ["std"] }
+wry = { version = "0.57", optional = true }
+
+[lints]
+workspace = true

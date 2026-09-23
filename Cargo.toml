@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/halley-core",
+    "crates/halley-engine",
+    "crates/halley-network",
+    "crates/halley-adblock",
+    "crates/halley-privacy",
+    "crates/halley-jerry",
+    "crates/halley-jerry-mcp",
+    "crates/halley-jerry-opt",
+    "crates/halley-extensions",
+    "crates/halley-common",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+# 1.85: required by wry 0.57 / tao 0.37 (engine embedding milestone).
+rust-version = "1.85"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[workspace.dependencies]
+# Session snapshot serialization (schema_version on BrowserSession).
+# Justification: Prompt #3 session foundation; Apache-2.0/MIT; widely audited.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Origin parsing shared by privacy + network (Prompt #4).
+url = "2"
+# Standards-compliant cookie parse/build (Prompt #4 §12) — we do not write
+# a partial Set-Cookie parser. Engine (WebView) still owns page cookies;
+# this is the Halley policy-layer model.
+cookie = "0.18"

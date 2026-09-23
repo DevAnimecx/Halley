@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halley</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #1f2329;
+    --bg-tab: #171b20;
+    --bg-tab-active: #2b3036;
+    --fg: #e6e6e6;
+    --muted: #9aa0a6;
+    --field: #2b3036;
+    --field-border: #3c4248;
+    --accent: #4c8dff;
+    --btn-hover: #363c43;
+    --btn-disabled-opacity: 0.35;
+    --tab-h: 36px;
+    --toolbar-h: 40px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+    overflow: hidden;
+  }
+  #tabstrip {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: var(--tab-h);
+    padding: 4px 6px 0;
+    background: var(--bg-tab);
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-shrink: 0;
+  }
+  #tabstrip::-webkit-scrollbar { height: 0; }
+  .tab {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 200px;
+    min-width: 80px;
+    height: 28px;
+    padding: 0 6px 0 10px;
+    border-radius: 8px 8px 0 0;
+    background: transparent;
+    color: var(--muted);
+    cursor: default;
+    flex-shrink: 1;
+    overflow: hidden;
+    position: relative;
+  }
+  .tab.active {
+    background: var(--bg-tab-active);
+    color: var(--fg);
+  }
+  .tab .title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    pointer-events: none;
+  }
+  .tab .close {
+    border: none;
+    background: transparent;
+    color: inherit;
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    border-radius: 4px;
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    opacity: 0.7;
+  }
+  .tab .close:hover { background: var(--btn-hover); opacity: 1; }
+  #newtab {
+    border: none;
+    background: transparent;
+    color: var(--fg);
+    width: 28px;
+    height: 24px;
+    min-width: 28px;
+    border-radius: 6px;
+    font-size: 16px;
+    cursor: pointer;
+    margin-bottom: 2px;
+    flex-shrink: 0;
+  }
+  #newtab:hover { background: var(--btn-hover); }
+  #toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--toolbar-h);
+    padding: 0 8px;
+    flex-shrink: 0;
+    background: var(--bg);
+  }
+  #toolbar button {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--fg);
+    border-radius: 6px;
+    min-width: 30px;
+    height: 30px;
+    padding: 0 6px;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  #toolbar button:hover:not(:disabled) { background: var(--btn-hover); }
+  #toolbar button:disabled {
+    opacity: var(--btn-disabled-opacity);
+    cursor: default;
+  }
+  #address {
+    flex: 1;
+    height: 30px;
+    border: 1px solid var(--field-border);
+    border-radius: 15px;
+    background: var(--field);
+    color: var(--fg);
+    padding: 0 14px;
+    font: inherit;
+    outline: none;
+    min-width: 0;
+  }
+  #address:focus { border-color: var(--accent); }
+  #title {
+    color: var(--muted);
+    max-width: 28ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    padding-right: 4px;
+  }
+  #jerrybtn.active {
+    background: var(--bg-tab-active);
+    border-color: var(--accent);
+  }
+  #jerrypanel {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    border-top: 1px solid var(--field-border);
+    background: var(--bg-tab);
+  }
+  #jerrypanel.open { display: flex; }
+  #jerryheader {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--field-border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  #jerryheader select,
+  #jerryheader input {
+    height: 26px;
+    border: 1px solid var(--field-border);
+    border-radius: 6px;
+    background: var(--field);
+    color: var(--fg);
+    font: inherit;
+    padding: 0 6px;
+    max-width: 140px;
+  }
+  #jerryheader input[type="password"] { max-width: 160px; }
+  #jerryheader .status { margin-left: auto; }
+  #jerrymessages {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    user-select: text;
+  }
+  .jmsg {
+    max-width: 92%;
+    padding: 6px 10px;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .jmsg.user {
+    align-self: flex-end;
+    background: var(--bg-tab-active);
+    color: var(--fg);
+  }
+  .jmsg.assistant {
+    align-self: flex-start;
+    background: var(--field);
+    color: var(--fg);
+  }
+  .jmsg.system {
+    align-self: center;
+    background: transparent;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .jmsg.streaming::after {
+    content: "▍";
+    animation: blink 1s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  #jerryerror {
+    display: none;
+    padding: 4px 8px;
+    color: #ff8a80;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  #jerryerror.show { display: block; }
+  #jerrycomposer {
+    display: flex;
+    gap: 6px;
+    padding: 6px 8px;
+    flex-shrink: 0;
+    border-top: 1px solid var(--field-border);
+  }
+  #jerryinput {
+    flex: 1;
+    min-height: 32px;
+    max-height: 72px;
+    resize: none;
+    border: 1px solid var(--field-border);
+    border-radius: 8px;
+    background: var(--field);
+    color: var(--fg);
+    font: inherit;
+    padding: 6px 10px;
+    outline: none;
+  }
+  #jerryinput:focus { border-color: var(--accent); }
+  #jerrycomposer button {
+    background: var(--accent);
+    border: none;
+    color: #fff;
+    border-radius: 8px;
+    padding: 0 12px;
+    font: inherit;
+    cursor: pointer;
+    height: 32px;
+  }
+  #jerrycomposer button:disabled {
+    opacity: var(--btn-disabled-opacity);
+    cursor: default;
+  }
+  #jerrycomposer button.secondary {
+    background: transparent;
+    border: 1px solid var(--field-border);
+    color: var(--fg);
+  }
+  #jerrycontext {
+    padding: 2px 8px 4px;
+    font-size: 10px;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+  <div id="tabstrip" role="tablist" aria-label="Tabs"></div>
+  <div id="toolbar">
+    <button id="back" type="button" title="Back (Alt+←)" aria-label="Back" disabled>&#x2190;</button>
+    <button id="forward" type="button" title="Forward (Alt+→)" aria-label="Forward" disabled>&#x2192;</button>
+    <button id="reload" type="button" title="Reload (Ctrl+R)" aria-label="Reload">&#x21bb;</button>
+    <input id="address" type="text" placeholder="Search or enter address"
+           spellcheck="false" autocomplete="off" autofocus>
+    <button id="jerrybtn" type="button" title="Jerry chat (Ctrl+J)" aria-label="Jerry chat">✦</button>
+    <span id="title"></span>
+  </div>
+  <div id="jerrypanel" aria-label="Jerry chat">
+    <div id="jerryheader">
+      <label>Provider
+        <select id="jerryprovider">
+          <option value="">(none)</option>
+          <option value="openai">OpenAI</option>
+          <option value="groq">Groq</option>
+          <option value="anthropic">Anthropic</option>
+          <option value="gemini">Gemini</option>
+          <option value="local">Local</option>
+        </select>
+      </label>
+      <label>Model
+        <input id="jerrymodel" type="text" placeholder="model id" spellcheck="false" autocomplete="off">
+      </label>
+      <label>API key
+        <input id="jerrykey" type="password" placeholder="stored locally" spellcheck="false" autocomplete="off">
+      </label>
+      <button id="jerrytestbtn" type="button" class="secondary" style="height:26px;border:1px solid var(--field-border);border-radius:6px;background:var(--field);color:var(--fg);font:inherit;cursor:pointer;padding:0 8px;">Test</button>
+      <button id="jerrynewbtn" type="button" style="height:26px;border:1px solid var(--field-border);border-radius:6px;background:var(--field);color:var(--fg);font:inherit;cursor:pointer;padding:0 8px;">New</button>
+      <button id="jerrystopbtn" type="button" style="height:26px;border:1px solid var(--field-border);border-radius:6px;background:var(--field);color:var(--fg);font:inherit;cursor:pointer;padding:0 8px;" disabled>Stop</button>
+      <span class="status" id="jerrystatus">disabled</span>
+    </div>
+    <div id="jerryerror" role="alert"></div>
+    <div id="jerrymessages" role="log" aria-live="polite"></div>
+    <div id="jerrycontext"></div>
+    <div id="jerrycomposer">
+      <textarea id="jerryinput" rows="2" placeholder="Ask Jerry about this page… (Enter to send)"></textarea>
+      <button id="jerrysendbtn" type="button">Send</button>
+    </div>
+  </div>
+<script>
+(function () {
+  "use strict";
+
+  function post(message) {
+    if (window.ipc && typeof window.ipc.postMessage === "function") {
+      window.ipc.postMessage(message);
+    }
+  }
+
+  var backBtn = document.getElementById("back");
+  var forwardBtn = document.getElementById("forward");
+  var reloadBtn = document.getElementById("reload");
+  var address = document.getElementById("address");
+  var titleEl = document.getElementById("title");
+  var strip = document.getElementById("tabstrip");
+
+  var state = {
+    url: "",
+    title: "",
+    canGoBack: false,
+    canGoForward: false,
+    loading: false,
+    tabs: [],
+    activeTabId: "",
+    jerry: {
+      open: false,
+      enabled: false,
+      provider: "",
+      model: "",
+      hasApiKey: false,
+      status: "disabled",
+      messages: [],
+      contextNote: "",
+      error: null
+    }
+  };
+
+  var jerryBtn = document.getElementById("jerrybtn");
+  var jerryPanel = document.getElementById("jerrypanel");
+  var jerryMessages = document.getElementById("jerrymessages");
+  var jerryStatus = document.getElementById("jerrystatus");
+  var jerryError = document.getElementById("jerryerror");
+  var jerryContext = document.getElementById("jerrycontext");
+  var jerryProvider = document.getElementById("jerryprovider");
+  var jerryModel = document.getElementById("jerrymodel");
+  var jerryKey = document.getElementById("jerrykey");
+  var jerryInput = document.getElementById("jerryinput");
+  var jerrySend = document.getElementById("jerrysendbtn");
+  var jerryStop = document.getElementById("jerrystopbtn");
+  var jerryNew = document.getElementById("jerrynewbtn");
+  var jerryTest = document.getElementById("jerrytestbtn");
+
+  function renderJerry() {
+    var j = state.jerry || {};
+    jerryPanel.classList.toggle("open", !!j.open);
+    jerryBtn.classList.toggle("active", !!j.open);
+    jerryStatus.textContent = j.status || "disabled";
+    if (j.provider && jerryProvider.value !== j.provider) {
+      jerryProvider.value = j.provider;
+    }
+    if (document.activeElement !== jerryModel) {
+      jerryModel.value = j.model || "";
+    }
+    jerryContext.textContent = j.contextNote || "";
+    if (j.error) {
+      jerryError.textContent = j.error;
+      jerryError.classList.add("show");
+    } else {
+      jerryError.classList.remove("show");
+      jerryError.textContent = "";
+    }
+    var busy = j.status === "streaming" || j.status === "connecting";
+    jerryStop.disabled = !busy;
+    jerrySend.disabled = !j.enabled || busy;
+    jerryTest.disabled = !j.enabled || busy;
+    jerryMessages.textContent = "";
+    (j.messages || []).forEach(function (m) {
+      var el = document.createElement("div");
+      el.className = "jmsg " + (m.role || "system") + (m.streaming ? " streaming" : "");
+      el.textContent = m.content || (m.streaming ? "…" : "");
+      jerryMessages.appendChild(el);
+    });
+    jerryMessages.scrollTop = jerryMessages.scrollHeight;
+  }
+
+  jerryBtn.addEventListener("click", function () { post("jerrytoggle"); });
+  jerrySend.addEventListener("click", function () {
+    var text = jerryInput.value.trim();
+    if (!text) return;
+    post("jerrysend " + text);
+    jerryInput.value = "";
+  });
+  jerryStop.addEventListener("click", function () { post("jerrystop"); });
+  jerryNew.addEventListener("click", function () { post("jerrynew"); });
+  jerryTest.addEventListener("click", function () { post("jerrytest"); });
+  jerryProvider.addEventListener("change", function () {
+    if (jerryProvider.value) post("jerryprovider " + jerryProvider.value);
+  });
+  jerryModel.addEventListener("change", function () {
+    if (jerryModel.value.trim()) post("jerrymodel " + jerryModel.value.trim());
+  });
+  jerryKey.addEventListener("change", function () {
+    var v = jerryKey.value.trim();
+    if (v) {
+      post("jerrykey " + v);
+      jerryKey.value = "";
+    }
+  });
+  jerryInput.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      jerrySend.click();
+    }
+  });
+
+  function focusAddress() {
+    address.focus();
+    address.select();
+  }
+
+  // Exposed for Rust (ChromeAction::FocusAddressBar) and local shortcuts.
+  window.__halleyFocusAddress = focusAddress;
+
+  backBtn.addEventListener("click", function () { post("back"); });
+  forwardBtn.addEventListener("click", function () { post("forward"); });
+  reloadBtn.addEventListener("click", function () { post("reload"); });
+
+  var newBtn = document.createElement("button");
+  newBtn.id = "newtab";
+  newBtn.type = "button";
+  newBtn.title = "New tab (Ctrl+T)";
+  newBtn.setAttribute("aria-label", "New tab");
+  newBtn.textContent = "+";
+  newBtn.addEventListener("click", function () { post("newtab"); });
+
+  function renderTabs() {
+    strip.textContent = "";
+    state.tabs.forEach(function (tab) {
+      var el = document.createElement("div");
+      el.className = "tab" + (tab.active ? " active" : "");
+      el.setAttribute("role", "tab");
+      el.setAttribute("aria-selected", tab.active ? "true" : "false");
+      el.title = tab.title || "";
+      el.dataset.id = tab.id;
+
+      var label = document.createElement("span");
+      label.className = "title";
+      label.textContent = tab.loading ? "…" : (tab.title || "New Tab");
+
+      var close = document.createElement("button");
+      close.className = "close";
+      close.type = "button";
+      close.title = "Close tab (Ctrl+W)";
+      close.setAttribute("aria-label", "Close tab");
+      close.textContent = "×";
+      close.addEventListener("click", function (e) {
+        e.stopPropagation();
+        post("closetab " + tab.id);
+      });
+
+      el.appendChild(label);
+      el.appendChild(close);
+      el.addEventListener("click", function () {
+        if (state.activeTabId !== tab.id) {
+          post("activatetab " + tab.id);
+        }
+      });
+      el.addEventListener("auxclick", function (e) {
+        if (e.button === 1) {
+          e.preventDefault();
+          post("closetab " + tab.id);
+        }
+      });
+      strip.appendChild(el);
+    });
+    strip.appendChild(newBtn);
+
+    // Keep the active tab scrolled into view.
+    var activeEl = strip.querySelector(".tab.active");
+    if (activeEl && activeEl.scrollIntoView) {
+      activeEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+  }
+
+  function applyState(next) {
+    state = next;
+    if (document.activeElement !== address) {
+      address.value = state.url || "";
+    }
+    titleEl.textContent = state.title || "";
+    backBtn.disabled = !state.canGoBack;
+    forwardBtn.disabled = !state.canGoForward;
+    // No Stop button: wry has no stop() — reload stays enabled unless
+    // loading would confuse; we keep reload always available (honest).
+    renderTabs();
+    renderJerry();
+  }
+
+  /**
+   * Called from Rust (WryBackend::update_chrome) with a plain object.
+   * Keeps the address bar in sync without fighting the user while typing.
+   */
+  window.__halleyUpdateChrome = function (next) {
+    applyState({
+      url: next.url || "",
+      title: next.title || "",
+      canGoBack: !!next.canGoBack,
+      canGoForward: !!next.canGoForward,
+      loading: !!next.loading,
+      tabs: Array.isArray(next.tabs) ? next.tabs : [],
+      activeTabId: next.activeTabId || "",
+      jerry: next.jerry || state.jerry
+    });
+  };
+
+  address.addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      var value = address.value.trim();
+      if (value.length > 0) {
+        post("navigate " + value);
+        address.blur();
+      }
+    } else if (event.key === "Escape") {
+      address.value = state.url || "";
+      address.blur();
+    }
+  });
+
+  /**
+   * Chrome-scoped keyboard shortcuts.
+   *
+   * Limitation (documented): when the content page has focus, many of
+   * these keys are consumed by the platform WebView (WebView2 accelerator
+   * keys) and never reach this document. Shortcuts are therefore
+   * reliable while the chrome (address bar / tab strip) has focus; the
+   * content-focused subset is best-effort only. We do not fake a native
+   * accelerator layer.
+   */
+  document.addEventListener("keydown", function (event) {
+    var mod = event.ctrlKey || event.metaKey;
+    var key = event.key.toLowerCase();
+
+    if (event.key === "F5") {
+      event.preventDefault();
+      post("reload");
+      return;
+    }
+    if (mod && key === "r" && document.activeElement !== address) {
+      // Ctrl+R reloads when not typing in the address bar.
+      event.preventDefault();
+      post("reload");
+      return;
+    }
+    if (mod && !event.shiftKey && key === "t") {
+      event.preventDefault();
+      post("newtab");
+      return;
+    }
+    if (mod && event.shiftKey && key === "t") {
+      event.preventDefault();
+      post("reopentab");
+      return;
+    }
+    if (mod && key === "w") {
+      event.preventDefault();
+      if (state.activeTabId) {
+        post("closetab " + state.activeTabId);
+      }
+      return;
+    }
+    if (mod && key === "j") {
+      event.preventDefault();
+      post("jerrytoggle");
+      return;
+    }
+    if (mod && event.key === "Tab") {
+      event.preventDefault();
+      post(event.shiftKey ? "prevtab" : "nexttab");
+      return;
+    }
+    if (event.altKey && event.key === "ArrowLeft") {
+      event.preventDefault();
+      post("back");
+      return;
+    }
+    if (event.altKey && event.key === "ArrowRight") {
+      event.preventDefault();
+      post("forward");
+      return;
+    }
+    if (event.key === "F6" || (event.altKey && (key === "d" || event.key === "ArrowUp"))) {
+      event.preventDefault();
+      focusAddress();
+      return;
+    }
+    if (mod && key === "l") {
+      event.preventDefault();
+      focusAddress();
+      return;
+    }
+    // Ctrl+1..8 → activate by position; Ctrl+9 → last tab.
+    if (mod && !event.shiftKey && event.key >= "1" && event.key <= "9") {
+      event.preventDefault();
+      var n = parseInt(event.key, 10);
+      var tabs = state.tabs;
+      if (tabs.length === 0) return;
+      var idx = n === 9 ? tabs.length - 1 : Math.min(n - 1, tabs.length - 1);
+      var target = tabs[idx];
+      if (target && state.activeTabId !== target.id) {
+        post("activatetab " + target.id);
+      }
+      return;
+    }
+  });
+
+  // Initial inert state so the strip renders correctly before the first
+  // Rust push.
+  applyState({
+    url: "",
+    title: "",
+    canGoBack: false,
+    canGoForward: false,
+    loading: false,
+    tabs: [],
+    activeTabId: "",
+    jerry: state.jerry
+  });
+})();
+</script>
+</body>
+</html>

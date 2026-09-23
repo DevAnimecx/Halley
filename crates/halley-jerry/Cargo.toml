@@ -1,0 +1,23 @@
+[package]
+name = "halley-jerry"
+description = "Jerry, the autonomous AI browser agent for Halley"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+halley-common = { path = "../halley-common" }
+halley-jerry-mcp = { path = "../halley-jerry-mcp" }
+halley-jerry-opt = { path = "../halley-jerry-opt" }
+serde.workspace = true
+serde_json.workspace = true
+url = "2"
+# BYOK LLM egress for Jerry only (architecture §: separate allowlisted
+# category; not page traffic). Needed now for Prompt #5 real provider
+# requests. License Apache-2.0 OR MIT; mature; no telemetry.
+# TLS via rustls (no OpenSSL dependency).
+ureq = { version = "2", default-features = false, features = ["tls"] }
+
+[lints]
+workspace = true

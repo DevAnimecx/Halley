@@ -1,0 +1,30 @@
+[package]
+name = "halley-core"
+description = "Application orchestration and browser-level state for Halley"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "halley"
+path = "src/main.rs"
+
+[dependencies]
+halley-common = { path = "../halley-common" }
+halley-engine = { path = "../halley-engine" }
+halley-jerry = { path = "../halley-jerry" }
+halley-jerry-mcp = { path = "../halley-jerry-mcp" }
+halley-network = { path = "../halley-network" }
+halley-privacy = { path = "../halley-privacy" }
+raw-window-handle = "0.6"
+serde.workspace = true
+serde_json.workspace = true
+tao = "0.37"
+url = "2"
+
+[dev-dependencies]
+halley-engine = { path = "../halley-engine", features = ["test-engine"] }
+
+[lints]
+workspace = true

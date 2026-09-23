@@ -1,0 +1,15 @@
+[package]
+name = "halley-privacy"
+description = "Privacy policies and protections for Halley"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+halley-common = { path = "../halley-common" }
+cookie.workspace = true
+url.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: ["master", "main"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify-linux:
+    name: Linux (fmt / check / clippy / test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install WebKitGTK / GTK (wry native backend)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt clippy
+          rustup default stable
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Check
+        run: cargo check --workspace --all-targets --all-features
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --all-features
+
+  verify-windows:
+    name: Windows (check / clippy / test)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt clippy
+          rustup default stable
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Check
+        run: cargo check --workspace --all-targets --all-features
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace --all-features
